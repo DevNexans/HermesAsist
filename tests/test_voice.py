@@ -1,0 +1,133 @@
+import math
+import struct
+import wave
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from hermes.voice import (SAMPLE_RATE, BLOCK_SECONDS, HandsFree, Transcriber,
+                          _HandsFreeStopped, _read_wav_float32, contains_wake_phrase)
+
+
+def _write_sine_wav(path: Path, seconds: float = 0.3) -> Path:
+    n = int(SAMPLE_RATE * seconds)
+    frames = b"".join(
+        struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / SAMPLE_RATE)))
+        for i in range(n)
+    )
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(frames)
+    return path
+
+
+def test_contains_wake_phrase_detects_and_strips():
+    ok, rest = contains_wake_phrase("hola hermes, abre el navegador")
+    assert ok is True
+    assert rest == "abre el navegador"
+
+
+def test_contains_wake_phrase_variants():
+    ok, rest = contains_wake_phrase("Hey Hermes dime la hora")
+    assert ok is True
+    assert rest == "dime la hora"
+    ok, _ = contains_wake_phrase("Hola Ermes, ¿qué hora es?")
+    assert ok is True
+
+
+def test_contains_wake_phrase_alone():
+    ok, rest = contains_wake_phrase("hola hermes")
+    assert ok is True
+    assert rest == ""
+
+
+def test_contains_wake_phrase_no_match():
+    ok, rest = contains_wake_phrase("habla de hermes el mensajero")
+    assert ok is False
+    assert rest == "habla de hermes el mensajero"
+
+
+def test_read_wav_float32(tmp_path):
+    wav = _write_sine_wav(tmp_path / "sine.wav")
+    audio = _read_wav_float32(wav)
+    assert audio.dtype == np.float32
+    assert audio.ndim == 1
+    assert abs(audio.max()) <= 1.0
+    assert len(audio) == int(SAMPLE_RATE * 0.3)
+
+
+# ------------------------------------------------------------ hands-free
+class FakeTranscriber:
+    """Devuelve transcripciones guionizadas (una por llamada)."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+
+    def transcribe_audio(self, audio):
+        return self.responses.pop(0) if self.responses else ""
+
+
+class FakeHF(HandsFree):
+    """HandsFree sin micrófono: los bloques salen de una lista."""
+
+    def __init__(self, blocks, responses):
+        super().__init__(FakeTranscriber(responses), block_seconds=BLOCK_SECONDS,
+                         silence_seconds=1.2)
+        self._blocks = list(blocks)
+
+    def _get_block(self):
+        if not self._blocks:
+            raise _HandsFreeStopped
+        return self._blocks.pop(0)
+
+
+def _loud_block() -> np.ndarray:
+    return np.full((int(SAMPLE_RATE * BLOCK_SECONDS), 1), 0.3, dtype=np.float32)
+
+
+def _silent_block() -> np.ndarray:
+    return np.zeros((int(SAMPLE_RATE * BLOCK_SECONDS), 1), dtype=np.float32)
+
+
+def test_hands_free_wake_and_command():
+    # 1s de voz (5 bloques) + 1.6s de silencio
+    hf = FakeHF([_loud_block()] * 5 + [_silent_block()] * 8,
+                responses=["hola hermes", "hola hermes abre el navegador"])
+    woke = []
+    command = hf._listen(on_wake=lambda: woke.append(True))
+    assert woke, "la wake word no activó el callback"
+    assert command == "abre el navegador"
+
+
+def test_hands_free_ignores_non_wake_speech():
+    hf = FakeHF([_loud_block()] * 5 + [_silent_block()] * 3,
+                responses=["hola mundo"])
+    woke = []
+    with pytest.raises(_HandsFreeStopped):
+        hf._listen(on_wake=lambda: woke.append(True))
+    assert not woke
+
+
+def test_hands_free_wake_alone_keeps_listening():
+    # wake word sola: no hay comando, se sigue escuchando
+    hf = FakeHF([_loud_block()] * 5 + [_silent_block()] * 8,
+                responses=["hola hermes", "hola hermes"])
+    with pytest.raises(_HandsFreeStopped):
+        hf._listen(on_wake=lambda: None)
+
+
+def test_transcribe_audio_flattens_2d():
+    tr = Transcriber("base")
+    received = {}
+
+    class FakeModel:
+        def transcribe(self, audio, **kwargs):
+            received["audio"] = audio
+            return iter(()), None
+
+    tr._model = FakeModel()  # sin descargar el modelo real
+    assert tr.transcribe_audio(np.zeros((10, 1), dtype=np.float32)) == ""
+    assert received["audio"].ndim == 1

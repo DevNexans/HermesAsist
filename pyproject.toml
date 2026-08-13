@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-asist"
+version = "0.1.0"
+description = "Hermes: asistente personal por CLI con memoria, voz y control de la máquina (Groq)"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.40",
+    "python-dotenv>=1.0",
+    "sounddevice>=0.4.6",
+    "numpy>=1.26",
+    "faster-whisper>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+hermes = "hermes.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hermes*"]
