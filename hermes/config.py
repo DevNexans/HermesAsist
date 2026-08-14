@@ -97,6 +97,13 @@ class Config:
         """Dispositivo de micrófono (nombre o índice) para grabación."""
         return os.environ.get("HERMES_MIC_DEVICE") or None
 
+    @property
+    def voice_model(self) -> str | None:
+        """Modelo de voz Piper (.onnx). Si no existe, se usa espeak-ng."""
+        return os.environ.get("HERMES_VOICE") or str(
+            Path.home() / ".hermes" / "voice" / "es_ES-sharvard-medium.onnx"
+        )
+
     # ------------------------------------------------------------ api key
     def load_env(self) -> None:
         """Carga .env del cwd y de HERMES_HOME (las variables ya definidas ganan)."""

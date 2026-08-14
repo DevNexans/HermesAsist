@@ -37,12 +37,18 @@ class VoiceError(Exception):
 
 # ------------------------------------------------------------------- TTS
 class Speaker:
-    def __init__(self, lang: str = "es"):
+    """Voz de Hermes: usa Piper (TTS neuronal local) si está disponible y
+    cae a espeak-ng si no. El modelo Piper se carga una sola vez (perezoso).
+    """
+
+    def __init__(self, lang: str = "es", model: str | None = None):
         self.lang = lang
+        self.model = model
+        self._piper = None
         self._lock = threading.Lock()
 
     def say(self, text: str) -> None:
-        """Habla el texto con espeak-ng en un hilo en segundo plano."""
+        """Habla el texto en un hilo en segundo plano."""
         if not text.strip():
             return
         text = text[:SPEAK_MAX_CHARS]
@@ -52,10 +58,46 @@ class Speaker:
     def _speak(self, text: str) -> None:
         try:
             with self._lock:
-                subprocess.run(
-                    ["espeak-ng", "-v", self.lang, "-s", "160", "-a", "150", text],
-                    timeout=120, check=False,
-                )
+                if self._try_piper(text):
+                    return
+        except Exception:  # noqa: BLE001 - la voz es un extra; no debe romper
+            pass
+        self._espeak(text)
+
+    def _try_piper(self, text: str) -> bool:
+        """Sintetiza con Piper y lo reproduce. Devuelve False si no hay modelo."""
+        model = self.model
+        if not model:
+            return False
+        if not Path(model).exists():
+            return False
+        if self._piper is None:
+            from piper.voice import PiperVoice
+            self._piper = PiperVoice.load(model)
+
+        import io
+        import wave
+
+        import sounddevice as sd
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            self._piper.synthesize(text, wf)
+        buf.seek(0)
+        with wave.open(buf, "rb") as wf:
+            rate = wf.getframerate()
+            raw = wf.readframes(wf.getnframes())
+        audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32767.0
+        sd.play(audio, rate)
+        sd.wait()
+        return True
+
+    def _espeak(self, text: str) -> None:
+        try:
+            subprocess.run(
+                ["espeak-ng", "-v", self.lang, "-s", "160", "-a", "150", text],
+                timeout=120, check=False,
+            )
         except (OSError, subprocess.SubprocessError):
             pass  # la voz es un extra; no debe romper la sesión
 

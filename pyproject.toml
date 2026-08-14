@@ -19,6 +19,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+voice = [
+    "piper-tts>=1.6",
+]
 
 [project.scripts]
 hermes = "hermes.cli:main"

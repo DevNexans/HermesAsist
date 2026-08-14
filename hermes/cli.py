@@ -90,7 +90,7 @@ class HermesCLI:
         self.memory = Memory(self.cfg.memory_dir, self.cfg.sessions_dir)
         self.session_id = self.memory.new_session()
         self.color = sys.stdin.isatty() and sys.stdout.isatty()
-        self.voice = None if args.no_voice else Speaker() if self.cfg.voice_enabled else None
+        self.voice = None if args.no_voice else Speaker(model=self.cfg.voice_model) if self.cfg.voice_enabled else None
         self.transcriber: Transcriber | None = None  # se crea al primer /escuchar
         self.llm: GroqLLM | None = None
         if self.cfg.api_key:
