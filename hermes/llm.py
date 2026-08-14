@@ -110,6 +110,8 @@ class GroqLLM:
                     "El proveedor dejó de responder a mitad de la respuesta "
                     "(modelo saturado). Prueba: /modelo nvidia/llama-3.3-nemotron-super-49b-v1"
                 ) from exc
+            except Exception as exc:  # noqa: BLE001 - se informa al usuario
+                raise GroqError(f"Error llamando al proveedor: {exc}") from exc
 
             if not tool_calls:
                 return "".join(text_parts)
