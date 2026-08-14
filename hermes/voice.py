@@ -268,10 +268,12 @@ class HandsFree:
         except ImportError as exc:
             raise VoiceError("Falta sounddevice. Instálalo con: pip install sounddevice") from exc
 
-        self._queue = queue.Queue()
-        self._stop.clear()
         blocksize = int(SAMPLE_RATE * self.block_seconds)
         for attempt in range(2):
+            # Cola fresca por intento: tras reiniciar la pila de audio, el
+            # reintento no debe recalibrar con bloques viejos y saturados.
+            self._queue = queue.Queue()
+            self._stop.clear()
             try:
                 with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
                                     callback=self._callback, blocksize=blocksize,

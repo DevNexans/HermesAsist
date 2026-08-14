@@ -237,9 +237,14 @@ class HermesCLI:
                      "Ctrl+C para volver al modo normal.", BOLD, self.color))
         try:
             while True:
-                command = handsfree.listen_for_command(
-                    on_wake=lambda: print(style("  🤖 Dime...", DIM, self.color))
-                )
+                try:
+                    command = handsfree.listen_for_command(
+                        on_wake=lambda: print(style("  🤖 Dime...", DIM, self.color))
+                    )
+                except VoiceError as exc:
+                    print(style(f"  ⚠ {exc}", BOLD, self.color))
+                    print(style("  Modo manos libres desactivado.", DIM, self.color))
+                    return
                 if command is None:
                     break
                 if not command.strip():

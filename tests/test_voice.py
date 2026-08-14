@@ -139,6 +139,47 @@ def test_hands_free_detects_saturated_mic():
         hf._listen(on_wake=None)
 
 
+def test_listen_for_command_retries_with_fresh_queue(monkeypatch):
+    """Tras saturación, el reintento recalibra con cola limpia (no con los
+    bloques viejos del intento fallido)."""
+    import queue as queue_mod
+
+    import hermes.voice as voice_mod
+
+    sat = np.full((int(SAMPLE_RATE * BLOCK_SECONDS), 1), 0.9, dtype=np.float32)
+    first_attempt = [sat] * 6  # 4 de calibración + 2 sobrantes en la cola
+    second_attempt = ([_silent_block()] * 4 + [_loud_block()] * 5
+                      + [_silent_block()] * 2 + [_loud_block()] * 5
+                      + [_silent_block()] * 8)
+    responses = ["hola hermes", "abre el navegador"]
+
+    class FakeStream:
+        def __init__(self, hf):
+            self.hf = hf
+            self.calls = 0
+
+        def __enter__(self):
+            blocks = [first_attempt, second_attempt][self.calls]
+            self.calls += 1
+            for b in blocks:
+                self.hf._queue.put(b)
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(voice_mod, "_restart_audio_stack", lambda: True)
+
+    hf = HandsFree(FakeTranscriber(responses))
+    hf._queue = queue_mod.Queue()
+    fake = FakeStream(hf)
+    monkeypatch.setattr("sounddevice.InputStream", lambda *a, **k: fake)
+
+    command = hf.listen_for_command()
+    assert command == "abre el navegador"
+    assert fake.calls == 2, "debió reintentar tras la saturación"
+
+
 def test_transcribe_audio_flattens_2d():
     tr = Transcriber("base")
     received = {}
