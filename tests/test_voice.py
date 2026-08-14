@@ -7,7 +7,14 @@ import numpy as np
 import pytest
 
 from hermes.voice import (SAMPLE_RATE, BLOCK_SECONDS, HandsFree, Transcriber,
-                          _HandsFreeStopped, _read_wav_float32, contains_wake_phrase)
+                          _HandsFreeStopped, _clean_for_speech, _read_wav_float32,
+                          contains_wake_phrase)
+
+
+def test_clean_for_speech_strips_markup():
+    assert _clean_for_speech('Hola **mundo**') == 'Hola mundo'
+    assert _clean_for_speech('Dijo: "hola"') == 'Dijo: hola'
+    assert _clean_for_speech('“comillas curvas”') == 'comillas curvas'
 
 
 def _write_sine_wav(path: Path, seconds: float = 0.3) -> Path:

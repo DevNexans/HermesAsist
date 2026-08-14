@@ -36,6 +36,14 @@ class VoiceError(Exception):
 
 
 # ------------------------------------------------------------------- TTS
+def _clean_for_speech(text: str) -> str:
+    """Quita caracteres de marcado que no deben leerse en voz alta
+    (asteriscos, comillas dobles rectas/curvas)."""
+    for ch in ("*", '"', "\u201c", "\u201d"):
+        text = text.replace(ch, "")
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
 class Speaker:
     """Voz de Hermes: usa Piper (TTS neuronal local) si está disponible y
     cae a espeak-ng si no. El modelo Piper se carga una sola vez (perezoso).
@@ -51,7 +59,7 @@ class Speaker:
         """Habla el texto en un hilo en segundo plano."""
         if not text.strip():
             return
-        text = text[:SPEAK_MAX_CHARS]
+        text = _clean_for_speech(text)[:SPEAK_MAX_CHARS]
         thread = threading.Thread(target=self._speak, args=(text,), daemon=True)
         thread.start()
 
