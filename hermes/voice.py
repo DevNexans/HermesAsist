@@ -175,7 +175,7 @@ SATURATION_LEVEL = 0.5
 
 
 def _calibrate(levels: list[float]) -> tuple[float, float]:
-    """Estima umbrales de voz/silencio a partir del nivel ambiente.
+    """Estima umbrales de voz/silencio a partir del nivel ambiente (RMS).
 
     Devuelve (umbral_voz, umbral_silencio). Lanza VoiceError si el micrófono
     está saturado (señal constante al máximo).
@@ -189,8 +189,11 @@ def _calibrate(levels: list[float]) -> tuple[float, float]:
             "ganancia del micrófono o reinicia; o elige otro dispositivo con "
             "HERMES_MIC_DEVICE."
         )
-    voice = max(ambient * 2.5, 0.015)
-    silence = max(ambient * 1.5, 0.008)
+    # Margen corto: la wake word «Hermes» es una palabra aislada con poca
+    # energía; un umbral muy por encima del ruido ambiente la ahoga. 1.5x
+    # sobre el RMS ambiente basta para separar voz real de ventilador.
+    voice = max(ambient * 1.5, 0.02)
+    silence = max(ambient * 1.2, 0.015)
     return voice, silence
 
 
@@ -226,7 +229,7 @@ class HandsFree:
     devuelve sin la wake word. Si no lo es, descarta y sigue escuchando.
     """
 
-    WAKE_MIN_SECONDS = 0.3      # «Hermes» dura ~0.4-0.5s; no descartarlo
+    WAKE_MIN_SECONDS = 0.2      # «Hermes» hablado dura ~0.3-0.5s; no descartarlo
     WAKE_MAX_SECONDS = 3.5      # tope del segmento analizado en busca de la wake
 
     def __init__(self, transcriber: Transcriber, block_seconds: float = BLOCK_SECONDS,
@@ -254,7 +257,9 @@ class HandsFree:
                     raise _HandsFreeStopped
 
     def _level(self, block: np.ndarray) -> float:
-        return float(np.max(np.abs(block)))
+        """Nivel RMS del bloque (la energía es más fiable que el pico: el
+        ruido de fondo tiene picos altos pero poca energía)."""
+        return float(np.sqrt(np.mean(np.asarray(block, dtype=np.float64) ** 2)))
 
     # ----------------------------------------------------------- wake word
     def listen_for_command(self, on_wake=None) -> str | None:
@@ -404,13 +409,15 @@ def record_until_silence(
                                 device=device):
                 while len(blocks) < CALIBRATION_BLOCKS:
                     sd.sleep(int(BLOCK_SECONDS * 1000))
-                # Calibrar umbral de silencio con el ruido de fondo.
+                # Calibrar umbral de silencio con el ruido de fondo (RMS).
                 _voice_thr, silence_thr = _calibrate(
-                    [float(np.max(np.abs(b))) for b in blocks[:CALIBRATION_BLOCKS]]
+                    [float(np.sqrt(np.mean(b.astype(np.float64) ** 2)))
+                     for b in blocks[:CALIBRATION_BLOCKS]]
                 )
                 while len(blocks) < max_blocks:
                     sd.sleep(int(BLOCK_SECONDS * 1000))
-                    level = float(np.max(np.abs(np.concatenate(blocks[-3:]))))
+                    level = float(np.sqrt(np.mean(
+                        np.concatenate(blocks[-3:]).astype(np.float64) ** 2)))
                     if level < silence_thr:
                         quiet_blocks += 1
                         if quiet_blocks >= quiet_needed:
