@@ -82,7 +82,7 @@ class Speaker:
 
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
-            self._piper.synthesize(text, wf)
+            self._piper.synthesize_wav(text, wf)
         buf.seek(0)
         with wave.open(buf, "rb") as wf:
             rate = wf.getframerate()
