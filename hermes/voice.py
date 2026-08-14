@@ -131,7 +131,9 @@ class Transcriber:
         audio = np.asarray(audio).reshape(-1)  # acepta (N,) y (N,1)
         if len(audio) == 0:
             return ""
-        segments, _info = self._model.transcribe(audio, language="es", beam_size=1)
+        segments, _info = self._model.transcribe(
+            audio, language="es", beam_size=5, vad_filter=True,
+        )
         return " ".join(s.text.strip() for s in segments).strip()
 
 

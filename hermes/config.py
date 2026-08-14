@@ -90,7 +90,7 @@ class Config:
 
     @property
     def whisper_model(self) -> str:
-        return os.environ.get("HERMES_WHISPER_MODEL") or "small"
+        return os.environ.get("HERMES_WHISPER_MODEL") or "medium"
 
     @property
     def mic_device(self) -> str | None:
