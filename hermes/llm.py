@@ -138,7 +138,10 @@ class GroqLLM:
                 name, args = tc["name"], tc["arguments"]
                 if on_tool:
                     on_tool(name, args)
-                result = dispatch(name, args)
+                try:
+                    result = dispatch(name, args)
+                except Exception as exc:  # noqa: BLE001 - el fallo de una herramienta no debe romper la conversación
+                    result = f"ERROR ejecutando {name}: {exc}"
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
 
         raise GroqError("Demasiadas rondas de herramientas; detengo la conversación.")

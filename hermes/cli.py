@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import readline
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from hermes import __version__
@@ -380,7 +381,22 @@ class HermesCLI:
 
 def main(argv=None) -> None:
     args = parse_args(argv)
-    HermesCLI(args).run()
+    try:
+        HermesCLI(args).run()
+    except KeyboardInterrupt:
+        print(style("\n  Hasta luego.", DIM, False))
+    except Exception as exc:  # noqa: BLE001 - nunca cerrar sin dejar rastro
+        import traceback as tb
+        tb.print_exc()
+        try:
+            log = Path.home() / ".hermes" / "error.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open("a", encoding="utf-8") as fh:
+                fh.write(f"\n--- {datetime.now().isoformat()} ---\n")
+                tb.print_exc(file=fh)
+            print(style(f"\n  Error inesperado. Detalle guardado en {log}", BOLD, False))
+        except Exception:  # noqa: BLE001
+            pass
 
 
 if __name__ == "__main__":
