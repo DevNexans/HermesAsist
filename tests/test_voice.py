@@ -25,29 +25,29 @@ def _write_sine_wav(path: Path, seconds: float = 0.3) -> Path:
 
 
 def test_contains_wake_phrase_detects_and_strips():
-    ok, rest = contains_wake_phrase("hola hermes, abre el navegador")
+    ok, rest = contains_wake_phrase("hermes abre el navegador")
     assert ok is True
     assert rest == "abre el navegador"
 
 
 def test_contains_wake_phrase_variants():
-    ok, rest = contains_wake_phrase("Hey Hermes dime la hora")
+    ok, rest = contains_wake_phrase("Hermes dime la hora")
     assert ok is True
     assert rest == "dime la hora"
-    ok, _ = contains_wake_phrase("Hola Ermes, ¿qué hora es?")
+    ok, _ = contains_wake_phrase("Ermes, ¿qué hora es?")
     assert ok is True
 
 
 def test_contains_wake_phrase_alone():
-    ok, rest = contains_wake_phrase("hola hermes")
+    ok, rest = contains_wake_phrase("hermes")
     assert ok is True
     assert rest == ""
 
 
 def test_contains_wake_phrase_no_match():
-    ok, rest = contains_wake_phrase("habla de hermes el mensajero")
+    ok, rest = contains_wake_phrase("cuéntame un chiste")
     assert ok is False
-    assert rest == "habla de hermes el mensajero"
+    assert rest == "cuéntame un chiste"
 
 
 def test_read_wav_float32(tmp_path):

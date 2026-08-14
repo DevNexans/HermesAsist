@@ -6,7 +6,7 @@ Comandos disponibles dentro de la sesión:
   /modelo <id>          cambia de modelo al instante (persistente)
   /voz                  activa/desactiva que Hermes hable (espeak-ng)
   /escuchar             graba el micrófono y envía lo transcrito
-  /manoslibres          escucha continua: di «Hola Hermes» + tu petición
+  /manoslibres          escucha continua: di «Hermes» + tu petición
   /micro                diagnostica el micrófono (nivel de señal)
   /memoria              muestra los hechos guardados
   /recordar <texto>     guarda un hecho en la memoria a largo plazo
@@ -37,7 +37,7 @@ Comandos disponibles:
   /modelo <id>          cambia de modelo al instante (persistente)
   /voz                  activa/desactiva que Hermes hable (espeak-ng)
   /escuchar             graba el micrófono y envía lo transcrito
-  /manoslibres          escucha continua: di «Hola Hermes» + tu petición
+  /manoslibres          escucha continua: di «Hermes» + tu petición
   /micro                diagnostica el micrófono (nivel de señal)
   /memoria              muestra los hechos guardados
   /recordar <texto>     guarda un hecho en la memoria a largo plazo
@@ -254,7 +254,7 @@ class HermesCLI:
         from hermes.voice import HandsFree
 
         handsfree = HandsFree(self.transcriber, device=self.cfg.mic_device)
-        print(style("  🎤 Modo manos libres: di «Hola Hermes» seguido de tu petición. "
+        print(style("  🎤 Modo manos libres: di «Hermes» seguido de tu petición. "
                      "Ctrl+C para volver al modo normal.", BOLD, self.color))
         try:
             while True:

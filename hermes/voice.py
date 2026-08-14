@@ -25,9 +25,9 @@ BLOCK_SECONDS = 0.2
 SPEAK_MAX_CHARS = 2000
 
 # Frases de activación para el modo manos libres (normalizadas a minúsculas).
+# Basta con decir «Hermes» (la wake word es una sola palabra).
 WAKE_PHRASES = (
-    "hola hermes", "hey hermes", "hola ermes", "hey ermes", "ola hermes",
-    "ahora hermes", "oye hermes", "oiga hermes",
+    "hermes", "ermes",
 )
 
 
@@ -226,7 +226,7 @@ class HandsFree:
     devuelve sin la wake word. Si no lo es, descarta y sigue escuchando.
     """
 
-    WAKE_MIN_SECONDS = 0.8      # segmentos más cortos no pueden ser la wake word
+    WAKE_MIN_SECONDS = 0.5      # «Hermes» es corto; no descartarlo como ruido
     WAKE_MAX_SECONDS = 3.5      # tope del segmento analizado en busca de la wake
 
     def __init__(self, transcriber: Transcriber, block_seconds: float = BLOCK_SECONDS,
