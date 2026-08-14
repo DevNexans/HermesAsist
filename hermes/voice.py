@@ -150,6 +150,29 @@ def _calibrate(levels: list[float]) -> tuple[float, float]:
     return voice, silence
 
 
+def _restart_audio_stack() -> bool:
+    """Reinicia wireplumber: desatasca el AGC del codec cuando el mic se satura.
+
+    Solo wireplumber (no pipewire): reconfigura el codec sin romper la
+    conexión JACK de PortAudio, que crashearía al salir del proceso.
+    Devuelve True si el reinicio se lanzó; False si no se pudo (entonces se
+    reporta el error de saturación original).
+    """
+    try:
+        subprocess.run(
+            ["systemctl", "--user", "restart", "wireplumber"],
+            capture_output=True, timeout=15,
+        )
+        time.sleep(2)
+        subprocess.run(
+            ["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "35%"],
+            capture_output=True, timeout=10,
+        )
+        return True
+    except Exception:  # noqa: BLE001 - si no se puede, se reporta el error original
+        return False
+
+
 class HandsFree:
     """Escucha continua con wake word («Hola Hermes»).
 
@@ -204,15 +227,21 @@ class HandsFree:
         self._queue = queue.Queue()
         self._stop.clear()
         blocksize = int(SAMPLE_RATE * self.block_seconds)
-        try:
-            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                callback=self._callback, blocksize=blocksize,
-                                device=self.device):
-                return self._listen(on_wake)
-        except _HandsFreeStopped:
-            return None
-        except Exception as exc:  # noqa: BLE001 - sin dispositivo de audio
-            raise VoiceError(f"No se pudo acceder al micrófono: {exc}") from exc
+        for attempt in range(2):
+            try:
+                with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                                    callback=self._callback, blocksize=blocksize,
+                                    device=self.device):
+                    return self._listen(on_wake)
+            except _HandsFreeStopped:
+                return None
+            except VoiceError as exc:
+                # Mic saturado: reintentar una vez tras reiniciar la pila de audio.
+                if attempt == 1 or "saturado" not in str(exc) or not _restart_audio_stack():
+                    raise
+            except Exception as exc:  # noqa: BLE001 - sin dispositivo de audio
+                raise VoiceError(f"No se pudo acceder al micrófono: {exc}") from exc
+        return None
 
     def _listen(self, on_wake) -> str | None:
         quiet_to_stop = max(1, int(self.silence_seconds / self.block_seconds))
@@ -294,46 +323,59 @@ def record_until_silence(
             "Falta sounddevice. Instálalo con: pip install sounddevice"
         ) from exc
 
-    blocks: list[np.ndarray] = []
-    quiet_blocks = 0
     quiet_needed = max(1, int(silence_seconds / BLOCK_SECONDS))
     max_blocks = int(max_seconds / BLOCK_SECONDS)
 
-    def callback(indata, _frames, _time, status):  # pragma: no cover - audio IO
-        blocks.append(indata.copy())
+    def _record() -> str:
+        # Estado fresco por intento: un reintento tras reiniciar la pila de
+        # audio no debe recalibrar con los bloques saturados del intento previo.
+        blocks: list[np.ndarray] = []
+        quiet_blocks = 0
+
+        def callback(indata, _frames, _time, status):  # pragma: no cover - audio IO
+            blocks.append(indata.copy())
+
+        try:
+            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                                callback=callback, blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
+                                device=device):
+                while len(blocks) < CALIBRATION_BLOCKS:
+                    sd.sleep(int(BLOCK_SECONDS * 1000))
+                # Calibrar umbral de silencio con el ruido de fondo.
+                _voice_thr, silence_thr = _calibrate(
+                    [float(np.max(np.abs(b))) for b in blocks[:CALIBRATION_BLOCKS]]
+                )
+                while len(blocks) < max_blocks:
+                    sd.sleep(int(BLOCK_SECONDS * 1000))
+                    level = float(np.max(np.abs(np.concatenate(blocks[-3:]))))
+                    if level < silence_thr:
+                        quiet_blocks += 1
+                        if quiet_blocks >= quiet_needed:
+                            break
+                    else:
+                        quiet_blocks = 0
+        except VoiceError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - sin dispositivo de audio
+            raise VoiceError(f"No se pudo acceder al micrófono: {exc}") from exc
+
+        if not blocks:
+            raise VoiceError("No se capturó audio del micrófono.")
+
+        audio = np.concatenate(blocks)
+        out = Path("/tmp") / f"hermes_{os.getpid()}_{time.time_ns()}.wav"
+        with wave.open(str(out), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes((audio * 32767).astype(np.int16).tobytes())
+        return str(out)
 
     try:
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                            callback=callback, blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
-                            device=device):
-            while len(blocks) < CALIBRATION_BLOCKS:
-                sd.sleep(int(BLOCK_SECONDS * 1000))
-            # Calibrar umbral de silencio con el ruido de fondo.
-            _voice_thr, silence_thr = _calibrate(
-                [float(np.max(np.abs(b))) for b in blocks[:CALIBRATION_BLOCKS]]
-            )
-            while len(blocks) < max_blocks:
-                sd.sleep(int(BLOCK_SECONDS * 1000))
-                level = float(np.max(np.abs(np.concatenate(blocks[-3:]))))
-                if level < silence_thr:
-                    quiet_blocks += 1
-                    if quiet_blocks >= quiet_needed:
-                        break
-                else:
-                    quiet_blocks = 0
-    except VoiceError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - sin dispositivo de audio
-        raise VoiceError(f"No se pudo acceder al micrófono: {exc}") from exc
+        return _record()
+    except VoiceError as exc:
+        # Mic saturado: reintentar una vez tras reiniciar la pila de audio.
+        if "saturado" not in str(exc) or not _restart_audio_stack():
+            raise
+        return _record()
 
-    if not blocks:
-        raise VoiceError("No se capturó audio del micrófono.")
-
-    audio = np.concatenate(blocks)
-    out = Path("/tmp") / f"hermes_{os.getpid()}_{time.time_ns()}.wav"
-    with wave.open(str(out), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes((audio * 32767).astype(np.int16).tobytes())
-    return str(out)
