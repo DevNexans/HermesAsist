@@ -71,3 +71,29 @@ def test_dispatch_memorize_and_recall(tmp_path):
     assert "OK" in out
     out = dispatch(ctx, "recall", '{"consulta": "arch"}')
     assert "Arch" in out
+
+
+def test_forget_requires_confirmation(tmp_path):
+    ctx = make_ctx(tmp_path, confirm=lambda p: False)
+    dispatch(ctx, "memorize", '{"texto": "El usuario usa Arch"}')
+    out = dispatch(ctx, "forget", '{"texto": "arch"}')
+    assert "Cancelado" in out
+    assert "Arch" in ctx.memory.facts()  # no se borró nada
+
+
+def test_forget_deletes_with_confirmation(tmp_path):
+    ctx = make_ctx(tmp_path, confirm=lambda p: True)
+    dispatch(ctx, "memorize", '{"texto": "El usuario usa Arch"}')
+    out = dispatch(ctx, "forget", '{"texto": "arch"}')
+    assert "OK" in out
+    assert ctx.memory.facts() == ""
+
+
+def test_forget_all_clears_everything(tmp_path):
+    ctx = make_ctx(tmp_path, confirm=lambda p: True)
+    dispatch(ctx, "memorize", '{"texto": "El usuario usa Arch"}')
+    ctx.memory.add_summary("Resumen de sesión anterior")
+    out = dispatch(ctx, "forget", '{"texto": "todo"}')
+    assert "OK" in out
+    assert ctx.memory.facts() == ""
+    assert ctx.memory.recent_summaries() == ""

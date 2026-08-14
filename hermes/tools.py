@@ -167,6 +167,27 @@ def recall(ctx: ToolContext, consulta: str) -> str:
     return hits if hits else "No encontré nada en la memoria con esa consulta."
 
 
+def forget(ctx: ToolContext, texto: str) -> str:
+    """Borra memoria a largo plazo, SOLO con confirmación del usuario.
+
+    `texto` puede ser un hecho concreto a borrar, o «todo» para vaciar toda
+    la memoria (hechos y resúmenes de sesiones).
+    """
+    texto = texto.strip()
+    if texto.lower() in ("todo", "toda", "toda la memoria", "todo lo que sabes"):
+        if not ctx.confirm("¿Borrar TODA la memoria a largo plazo (hechos y resúmenes)? [s/N] "):
+            return "Cancelado: no borré nada."
+        ctx.memory.clear_memory()
+        return "OK: memoria a largo plazo borrada por completo."
+    if not texto:
+        return "Indica qué borrar (un hecho concreto o «todo»)."
+    if not ctx.confirm(f"¿Borrar de la memoria: «{texto[:80]}»? [s/N] "):
+        return "Cancelado: no borré nada."
+    if ctx.memory.delete_fact(texto):
+        return f"OK: borrado de la memoria: {texto}"
+    return f"No encontré en la memoria nada que coincida con: {texto}"
+
+
 # ------------------------------------------------------------ definiciones
 TOOL_DEFS = [
     {
@@ -251,6 +272,25 @@ TOOL_DEFS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "forget",
+            "description": "Borra memoria a largo plazo. ÚSALA SOLO cuando el usuario "
+                           "lo pida explícitamente (por ejemplo «olvídate de...» o "
+                           "«borra tu memoria»). Pide confirmación al usuario antes de "
+                           "borrar; nunca borres memoria por tu cuenta. El texto «todo» "
+                           "vacía toda la memoria.",
+            "parameters": {
+                "type": "object",
+                "properties": {"texto": {
+                    "type": "string",
+                    "description": "Hecho concreto a borrar, o «todo» para vaciar toda la memoria"
+                }},
+                "required": ["texto"],
+            },
+        },
+    },
 ]
 
 HANDLERS = {
@@ -260,6 +300,7 @@ HANDLERS = {
     "list_dir": list_dir,
     "memorize": memorize,
     "recall": recall,
+    "forget": forget,
 }
 
 

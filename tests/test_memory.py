@@ -38,6 +38,26 @@ def test_session_history_and_clear(tmp_path):
     assert mem.history(sid) == []
 
 
+def test_delete_fact_removes_matching_only(tmp_path):
+    mem = make_memory(tmp_path)
+    mem.add_fact("Me llamo Nexan")
+    mem.add_fact("Mi servidor favorito es Nginx")
+    assert mem.delete_fact("nexan") is True
+    assert "Nexan" not in mem.facts()
+    assert "Nginx" in mem.facts()
+    assert mem.delete_fact("no existe esto") is False
+
+
+def test_clear_memory_removes_facts_and_summaries(tmp_path):
+    mem = make_memory(tmp_path)
+    mem.add_fact("Me llamo Nexan")
+    mem.add_summary("Se instaló Nginx")
+    mem.clear_memory()
+    assert mem.facts() == ""
+    assert mem.recent_summaries() == ""
+    assert "Aún no hay memoria" in mem.context_block()
+
+
 def test_context_block_includes_facts(tmp_path):
     mem = make_memory(tmp_path)
     assert "(Aún no hay memoria" in mem.context_block()

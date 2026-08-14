@@ -41,6 +41,23 @@ class Memory:
             return ""
         return self.facts_path.read_text(encoding="utf-8").strip()
 
+    def delete_fact(self, text: str) -> bool:
+        """Borra los hechos que contengan el texto. Devuelve True si borró algo."""
+        text = text.strip()
+        if not text or not self.facts_path.exists():
+            return False
+        lines = self.facts_path.read_text(encoding="utf-8").splitlines()
+        kept = [l for l in lines if text.lower() not in l.lower()]
+        if len(kept) == len(lines):
+            return False
+        self.facts_path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        return True
+
+    def clear_memory(self) -> None:
+        """Borra toda la memoria a largo plazo (hechos y resúmenes de sesiones)."""
+        self.facts_path.unlink(missing_ok=True)
+        self.summaries_path.unlink(missing_ok=True)
+
     def recall(self, query: str, limit: int = 10) -> str:
         """Busca coincidencias (sin distinguir mayúsculas) en hechos y resúmenes."""
         q = query.lower()

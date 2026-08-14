@@ -10,6 +10,7 @@ Comandos disponibles dentro de la sesión:
   /micro                diagnostica el micrófono (nivel de señal)
   /memoria              muestra los hechos guardados
   /recordar <texto>     guarda un hecho en la memoria a largo plazo
+  /olvidar <texto>      borra un hecho de la memoria («todo» vacía toda la memoria)
   /limpiar              olvida la conversación actual (mantiene la memoria)
   /salir                termina la sesión
 """
@@ -40,6 +41,7 @@ Comandos disponibles:
   /micro                diagnostica el micrófono (nivel de señal)
   /memoria              muestra los hechos guardados
   /recordar <texto>     guarda un hecho en la memoria a largo plazo
+  /olvidar <texto>      borra un hecho de la memoria («todo» vacía toda la memoria)
   /limpiar              olvida la conversación actual (mantiene la memoria)
   /salir                termina la sesión
 """
@@ -62,6 +64,7 @@ Reglas:
   el sistema se la pedirá automáticamente.
 - Si algo falla, intenta diagnosticar y arreglarlo usando tus herramientas.
 - Cuando el usuario diga algo que valga la pena recordar, guárdalo con memorize.
+- Borra memoria SOLO cuando el usuario te lo pida explícitamente, con forget y su confirmación.
 
 {memoria}
 
@@ -159,6 +162,8 @@ class HermesCLI:
             self._cmd_memoria()
         elif cmd in ("/recordar", "/remember"):
             self._cmd_recordar(arg)
+        elif cmd in ("/olvidar", "/forget"):
+            self._cmd_olvidar(arg)
         elif cmd == "/limpiar":
             self._rebuild_system()
             print(style("  Conversación olvidada. La memoria a largo plazo sigue intacta.", DIM, self.color))
@@ -203,6 +208,22 @@ class HermesCLI:
             print("  Uso: /recordar <texto>")
             return
         print(f"  {self.memory.add_fact(arg) and 'OK: recordado.' or 'Ya estaba guardado.'}")
+
+    def _cmd_olvidar(self, arg: str) -> None:
+        if not arg:
+            print("  Uso: /olvidar <texto>  o  /olvidar todo")
+            return
+        if arg.lower() in ("todo", "toda", "toda la memoria"):
+            if not self._confirm("¿Borrar TODA la memoria a largo plazo (hechos y resúmenes)? [s/N] "):
+                print("  Cancelado: no se borró nada.")
+                return
+            self.memory.clear_memory()
+            print("  OK: memoria a largo plazo borrada por completo.")
+            return
+        if self.memory.delete_fact(arg):
+            print(f"  OK: borrado de la memoria: {arg}")
+        else:
+            print(f"  No encontré en la memoria nada que coincida con: {arg}")
 
     def _cmd_escuchar(self) -> None:
         print(style("  Escuchando... (silencio para terminar)", DIM, self.color))
