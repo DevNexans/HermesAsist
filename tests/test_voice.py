@@ -103,6 +103,17 @@ def test_hands_free_wake_and_command():
     assert command == "abre el navegador"
 
 
+def test_hands_free_short_wake_word():
+    # «Hermes» solo dura ~0.4-0.6s: no debe descartarse por ser corto
+    hf = FakeHF([_silent_block()] * 4 + [_loud_block()] * 3 + [_silent_block()] * 2
+                + [_loud_block()] * 5 + [_silent_block()] * 8,
+                responses=["hermes", "abre el navegador"])
+    woke = []
+    command = hf._listen(on_wake=lambda: woke.append(True))
+    assert woke
+    assert command == "abre el navegador"
+
+
 def test_hands_free_command_in_same_breath():
     # petición dicha de corrido con la wake word, sin pausa
     hf = FakeHF([_silent_block()] * 4 + [_loud_block()] * 10 + [_silent_block()] * 8,

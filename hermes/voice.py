@@ -226,7 +226,7 @@ class HandsFree:
     devuelve sin la wake word. Si no lo es, descarta y sigue escuchando.
     """
 
-    WAKE_MIN_SECONDS = 0.5      # «Hermes» es corto; no descartarlo como ruido
+    WAKE_MIN_SECONDS = 0.3      # «Hermes» dura ~0.4-0.5s; no descartarlo
     WAKE_MAX_SECONDS = 3.5      # tope del segmento analizado en busca de la wake
 
     def __init__(self, transcriber: Transcriber, block_seconds: float = BLOCK_SECONDS,
