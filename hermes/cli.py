@@ -84,6 +84,16 @@ def style(text: str, code: str, enabled: bool) -> str:
     return f"{code}{text}{RESET}" if enabled else text
 
 
+GOODBYE_WORDS = {"adios", "adiós", "bye", "chao", "chau", "hasta luego",
+                 "hasta pronto", "nos vemos"}
+
+
+def is_goodbye(text: str) -> bool:
+    """True si el texto es una despedida y debe cerrar Hermes."""
+    t = text.strip().lower().strip(".!")
+    return t in GOODBYE_WORDS
+
+
 class HermesCLI:
     def __init__(self, args: argparse.Namespace):
         self.cfg = Config(args.home)
@@ -105,6 +115,7 @@ class HermesCLI:
         self.ctx = ToolContext(self.memory, confirm=self._confirm)
         self.context: list[dict] = []
         self._history: list[dict] = []  # para resumir al cerrar
+        self._should_exit = False
 
     # ------------------------------------------------------------ helpers
     def _confirm(self, prompt: str) -> bool:
@@ -243,6 +254,9 @@ class HermesCLI:
             print(style("  No entendí nada.", DIM, self.color))
             return
         print(style(f"  🗣️ {text}", DIM, self.color))
+        if is_goodbye(text):
+            self._should_exit = True
+            return
         self.handle_message(text)
 
     def _cmd_manoslibres(self) -> None:
@@ -272,6 +286,9 @@ class HermesCLI:
                     print(style("  (no capté la petición tras la wake word)", DIM, self.color))
                     continue
                 print(style(f"  🗣️ {command}", DIM, self.color))
+                if is_goodbye(command):
+                    self._should_exit = True
+                    return
                 self.handle_message(command)
         except KeyboardInterrupt:
             print(style("\n  Modo manos libres desactivado.", DIM, self.color))
@@ -382,10 +399,15 @@ class HermesCLI:
                 readline.add_history(line)
             except AttributeError:
                 pass
-            if line.startswith("/") or line.lower() in ("salir", "exit", "quit"):
+            if is_goodbye(line):
+                print(style("  ¡Hasta luego!", DIM, self.color))
+                running = False
+            elif line.startswith("/") or line.lower() in ("salir", "exit", "quit"):
                 running = self.handle_command(line)
             else:
                 self.handle_message(line)
+            if self._should_exit:
+                running = False
 
         self._close()
 
