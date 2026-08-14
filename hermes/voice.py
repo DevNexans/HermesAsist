@@ -321,25 +321,42 @@ class HandsFree:
 
             audio = np.concatenate(speech)
             text = self.tr.transcribe_audio(audio)
-            ok, _rest = contains_wake_phrase(text)
+            ok, rest = contains_wake_phrase(text)
             if not ok:
                 time.sleep(0.8)  # cooldown: no re-analizar el mismo ruido
                 continue
             if on_wake:
                 on_wake()
 
+            # La petición vino junto con la wake word (sin pausa): usarla ya,
+            # no esperar a que el usuario repita.
+            if rest.strip():
+                return re.sub(r"^\s*(dime|quiero que|puedes)?\s*", "", rest)
+
             # --- fase 2: capturar el comando hasta el silencio ----------
+            # Esperar a que empiece la voz (hasta 4s); solo entonces contar
+            # silencio, para no cortar por la pausa natural tras la wake word.
             cmd_blocks: list[np.ndarray] = []
             quiet2 = 0
+            heard = False
+            waited = 0
+            wait_blocks = max(1, int(4.0 / self.block_seconds))
             while len(cmd_blocks) < max_cmd_blocks:
                 block = self._get_block()
                 cmd_blocks.append(block)
-                if self._level(block) < silence_thr:
-                    quiet2 += 1
-                else:
+                if self._level(block) >= voice_thr:
+                    heard = True
                     quiet2 = 0
-                if quiet2 >= quiet_to_stop:
-                    break
+                elif heard:
+                    quiet2 += 1
+                    if quiet2 >= quiet_to_stop:
+                        break
+                else:
+                    waited += 1
+                    if waited >= wait_blocks:
+                        break
+            if not heard or not cmd_blocks:
+                continue  # no habló tras la wake word: seguir escuchando
 
             if not cmd_blocks:
                 continue

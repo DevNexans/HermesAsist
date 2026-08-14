@@ -93,12 +93,23 @@ def _silent_block() -> np.ndarray:
 
 
 def test_hands_free_wake_and_command():
-    # calibración en silencio + 1s de voz + 1.6s de silencio
-    hf = FakeHF([_silent_block()] * 4 + [_loud_block()] * 5 + [_silent_block()] * 8,
+    # calibración en silencio + wake word + pausa + comando + silencio
+    hf = FakeHF([_silent_block()] * 4 + [_loud_block()] * 5 + [_silent_block()] * 2
+                + [_loud_block()] * 5 + [_silent_block()] * 8,
                 responses=["hola hermes", "hola hermes abre el navegador"])
     woke = []
     command = hf._listen(on_wake=lambda: woke.append(True))
     assert woke, "la wake word no activó el callback"
+    assert command == "abre el navegador"
+
+
+def test_hands_free_command_in_same_breath():
+    # petición dicha de corrido con la wake word, sin pausa
+    hf = FakeHF([_silent_block()] * 4 + [_loud_block()] * 10 + [_silent_block()] * 8,
+                responses=["hola hermes abre el navegador"])
+    woke = []
+    command = hf._listen(on_wake=lambda: woke.append(True))
+    assert woke
     assert command == "abre el navegador"
 
 
