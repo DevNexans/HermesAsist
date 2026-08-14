@@ -7,6 +7,7 @@ Comandos disponibles dentro de la sesión:
   /voz                  activa/desactiva que Hermes hable (espeak-ng)
   /escuchar             graba el micrófono y envía lo transcrito
   /manoslibres          escucha continua: di «Hola Hermes» + tu petición
+  /micro                diagnostica el micrófono (nivel de señal)
   /memoria              muestra los hechos guardados
   /recordar <texto>     guarda un hecho en la memoria a largo plazo
   /limpiar              olvida la conversación actual (mantiene la memoria)
@@ -35,6 +36,7 @@ Comandos disponibles:
   /voz                  activa/desactiva que Hermes hable (espeak-ng)
   /escuchar             graba el micrófono y envía lo transcrito
   /manoslibres          escucha continua: di «Hola Hermes» + tu petición
+  /micro                diagnostica el micrófono (nivel de señal)
   /memoria              muestra los hechos guardados
   /recordar <texto>     guarda un hecho en la memoria a largo plazo
   /limpiar              olvida la conversación actual (mantiene la memoria)
@@ -150,6 +152,8 @@ class HermesCLI:
             self._cmd_escuchar()
         elif cmd in ("/manoslibres", "/manos"):
             self._cmd_manoslibres()
+        elif cmd == "/micro":
+            self._cmd_micro()
         elif cmd in ("/memoria", "/memory"):
             self._cmd_memoria()
         elif cmd in ("/recordar", "/remember"):
@@ -202,7 +206,7 @@ class HermesCLI:
     def _cmd_escuchar(self) -> None:
         print(style("  Escuchando... (silencio para terminar)", DIM, self.color))
         try:
-            wav = record_until_silence()
+            wav = record_until_silence(device=self.cfg.mic_device)
         except VoiceError as exc:
             print(f"  Error de audio: {exc}")
             return
@@ -227,7 +231,7 @@ class HermesCLI:
             self.transcriber = Transcriber(self.cfg.whisper_model)
         from hermes.voice import HandsFree
 
-        handsfree = HandsFree(self.transcriber)
+        handsfree = HandsFree(self.transcriber, device=self.cfg.mic_device)
         print(style("  🎤 Modo manos libres: di «Hola Hermes» seguido de tu petición. "
                      "Ctrl+C para volver al modo normal.", BOLD, self.color))
         try:
@@ -277,6 +281,39 @@ class HermesCLI:
         self._history.append(asst_msg)
         self.memory.append(self.session_id, user_msg)
         self.memory.append(self.session_id, asst_msg)
+
+    def _cmd_micro(self) -> None:
+        """Diagnóstico del micrófono: nivel de señal y consejos."""
+        try:
+            import numpy as np
+            import sounddevice as sd
+        except ImportError:
+            print("  Falta sounddevice.")
+            return
+        try:
+            name = sd.query_devices(self.cfg.mic_device or sd.default.device[0])["name"]
+        except Exception:  # noqa: BLE001
+            name = "(desconocido)"
+        print(style(f"  🎙 Entrada: {name}", DIM, self.color))
+        print(style("  Grabando 3s — habla o haz ruido...", DIM, self.color))
+        try:
+            rec = sd.rec(int(3 * 16000), samplerate=16000, channels=1,
+                         dtype="float32", device=self.cfg.mic_device)
+            sd.wait()
+            rms = float(np.sqrt(np.mean(rec**2)))
+            peak = float(np.max(np.abs(rec)))
+        except Exception as exc:  # noqa: BLE001
+            print(f"  Error al grabar: {exc}")
+            return
+        print(f"  Nivel: peak={peak:.3f} | rms={rms:.4f}")
+        if rms > 0.5:
+            print(style("  ⚠ Micrófono SATURADO: señal al máximo constante. Baja la "
+                         "ganancia (amixer / ajustes del sistema), reinicia o usa otro "
+                         "dispositivo con HERMES_MIC_DEVICE.", BOLD, self.color))
+        elif rms < 0.005:
+            print(style("  ⚠ Nivel muy bajo: habla más cerca o sube el volumen del mic.", BOLD, self.color))
+        else:
+            print(style("  ✓ Nivel correcto para voz.", DIM, self.color))
 
     def _on_tool(self, name: str, args: str) -> None:
         try:

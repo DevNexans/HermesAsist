@@ -93,8 +93,8 @@ def _silent_block() -> np.ndarray:
 
 
 def test_hands_free_wake_and_command():
-    # 1s de voz (5 bloques) + 1.6s de silencio
-    hf = FakeHF([_loud_block()] * 5 + [_silent_block()] * 8,
+    # calibración en silencio + 1s de voz + 1.6s de silencio
+    hf = FakeHF([_silent_block()] * 4 + [_loud_block()] * 5 + [_silent_block()] * 8,
                 responses=["hola hermes", "hola hermes abre el navegador"])
     woke = []
     command = hf._listen(on_wake=lambda: woke.append(True))
@@ -103,7 +103,7 @@ def test_hands_free_wake_and_command():
 
 
 def test_hands_free_ignores_non_wake_speech():
-    hf = FakeHF([_loud_block()] * 5 + [_silent_block()] * 3,
+    hf = FakeHF([_silent_block()] * 4 + [_loud_block()] * 5 + [_silent_block()] * 3,
                 responses=["hola mundo"])
     woke = []
     with pytest.raises(_HandsFreeStopped):
@@ -113,10 +113,19 @@ def test_hands_free_ignores_non_wake_speech():
 
 def test_hands_free_wake_alone_keeps_listening():
     # wake word sola: no hay comando, se sigue escuchando
-    hf = FakeHF([_loud_block()] * 5 + [_silent_block()] * 8,
+    hf = FakeHF([_silent_block()] * 4 + [_loud_block()] * 5 + [_silent_block()] * 8,
                 responses=["hola hermes", "hola hermes"])
     with pytest.raises(_HandsFreeStopped):
         hf._listen(on_wake=lambda: None)
+
+
+def test_hands_free_detects_saturated_mic():
+    from hermes.voice import VoiceError
+
+    sat = np.full((int(SAMPLE_RATE * BLOCK_SECONDS), 1), 0.9, dtype=np.float32)
+    hf = FakeHF([sat] * 4, responses=[])
+    with pytest.raises(VoiceError, match="saturado"):
+        hf._listen(on_wake=None)
 
 
 def test_transcribe_audio_flattens_2d():

@@ -123,6 +123,33 @@ class _HandsFreeStopped(Exception):
     pass
 
 
+# Bloques usados para estimar el ruido de fondo antes de empezar a escuchar.
+CALIBRATION_BLOCKS = 4
+# Si el nivel ambiente (pico mediano de bloque) supera esto, el mic está
+# saturado/clipeado y no sirve para voz.
+SATURATION_LEVEL = 0.5
+
+
+def _calibrate(levels: list[float]) -> tuple[float, float]:
+    """Estima umbrales de voz/silencio a partir del nivel ambiente.
+
+    Devuelve (umbral_voz, umbral_silencio). Lanza VoiceError si el micrófono
+    está saturado (señal constante al máximo).
+    """
+    if not levels:
+        return 0.02, 0.01
+    ambient = float(np.median(levels))
+    if ambient > SATURATION_LEVEL:
+        raise VoiceError(
+            "Micrófono saturado: señal constante al máximo (¿clip?). Baja la "
+            "ganancia del micrófono o reinicia; o elige otro dispositivo con "
+            "HERMES_MIC_DEVICE."
+        )
+    voice = max(ambient * 2.5, 0.015)
+    silence = max(ambient * 1.5, 0.008)
+    return voice, silence
+
+
 class HandsFree:
     """Escucha continua con wake word («Hola Hermes»).
 
@@ -132,17 +159,18 @@ class HandsFree:
     devuelve sin la wake word. Si no lo es, descarta y sigue escuchando.
     """
 
-    WAKE_ENERGY = 0.02          # nivel pico que se considera «hay voz»
     WAKE_MIN_SECONDS = 0.8      # segmentos más cortos no pueden ser la wake word
     WAKE_MAX_SECONDS = 3.5      # tope del segmento analizado en busca de la wake
 
     def __init__(self, transcriber: Transcriber, block_seconds: float = BLOCK_SECONDS,
                  silence_seconds: float = SILENCE_SECONDS,
-                 max_command_seconds: int = MAX_RECORD_SECONDS):
+                 max_command_seconds: int = MAX_RECORD_SECONDS,
+                 device=None):
         self.tr = transcriber
         self.block_seconds = block_seconds
         self.silence_seconds = silence_seconds
         self.max_command_seconds = max_command_seconds
+        self.device = device
         self._queue: queue.Queue = queue.Queue()
         self._stop = threading.Event()
 
@@ -178,7 +206,8 @@ class HandsFree:
         blocksize = int(SAMPLE_RATE * self.block_seconds)
         try:
             with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                callback=self._callback, blocksize=blocksize):
+                                callback=self._callback, blocksize=blocksize,
+                                device=self.device):
                 return self._listen(on_wake)
         except _HandsFreeStopped:
             return None
@@ -189,13 +218,17 @@ class HandsFree:
         quiet_to_stop = max(1, int(self.silence_seconds / self.block_seconds))
         max_cmd_blocks = int(self.max_command_seconds / self.block_seconds)
 
+        # Calibrar umbrales con los primeros bloques (ruido de fondo).
+        calib_levels = [self._level(self._get_block()) for _ in range(CALIBRATION_BLOCKS)]
+        voice_thr, silence_thr = _calibrate(calib_levels)
+
         while True:
             # --- fase 1: buscar la wake word -----------------------------
             speech: list[np.ndarray] = []
             quiet = 0
             while True:
                 block = self._get_block()
-                if self._level(block) > self.WAKE_ENERGY:
+                if self._level(block) > voice_thr:
                     speech.append(block)
                     quiet = 0
                 elif speech:
@@ -228,7 +261,7 @@ class HandsFree:
             while len(cmd_blocks) < max_cmd_blocks:
                 block = self._get_block()
                 cmd_blocks.append(block)
-                if self._level(block) < 0.01:
+                if self._level(block) < silence_thr:
                     quiet2 += 1
                 else:
                     quiet2 = 0
@@ -251,6 +284,7 @@ class HandsFree:
 def record_until_silence(
     max_seconds: int = MAX_RECORD_SECONDS,
     silence_seconds: float = SILENCE_SECONDS,
+    device=None,
 ) -> str:
     """Graba el micrófono hasta detectar silencio y devuelve la ruta de un WAV."""
     try:
@@ -270,18 +304,25 @@ def record_until_silence(
 
     try:
         with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                            callback=callback, blocksize=int(SAMPLE_RATE * BLOCK_SECONDS)):
+                            callback=callback, blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
+                            device=device):
+            while len(blocks) < CALIBRATION_BLOCKS:
+                sd.sleep(int(BLOCK_SECONDS * 1000))
+            # Calibrar umbral de silencio con el ruido de fondo.
+            _voice_thr, silence_thr = _calibrate(
+                [float(np.max(np.abs(b))) for b in blocks[:CALIBRATION_BLOCKS]]
+            )
             while len(blocks) < max_blocks:
                 sd.sleep(int(BLOCK_SECONDS * 1000))
-                if len(blocks) < 4:
-                    continue
                 level = float(np.max(np.abs(np.concatenate(blocks[-3:]))))
-                if level < 0.01:
+                if level < silence_thr:
                     quiet_blocks += 1
                     if quiet_blocks >= quiet_needed:
                         break
                 else:
                     quiet_blocks = 0
+    except VoiceError:
+        raise
     except Exception as exc:  # noqa: BLE001 - sin dispositivo de audio
         raise VoiceError(f"No se pudo acceder al micrófono: {exc}") from exc
 

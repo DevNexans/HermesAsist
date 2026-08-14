@@ -92,6 +92,11 @@ class Config:
     def whisper_model(self) -> str:
         return os.environ.get("HERMES_WHISPER_MODEL") or "small"
 
+    @property
+    def mic_device(self) -> str | None:
+        """Dispositivo de micrófono (nombre o índice) para grabación."""
+        return os.environ.get("HERMES_MIC_DEVICE") or None
+
     # ------------------------------------------------------------ api key
     def load_env(self) -> None:
         """Carga .env del cwd y de HERMES_HOME (las variables ya definidas ganan)."""
