@@ -205,6 +205,61 @@ def _calibrate(levels: list[float]) -> tuple[float, float]:
     return voice, silence
 
 
+# Referencia global al callback no-op: si se recolecta, libasound llama a
+# memoria liberada y el proceso muere con segfault al reportar un error ALSA.
+_ALSA_NOOP_HANDLER = None
+
+
+class _suppress_stderr:
+    """Redirige stderr a /dev/null a nivel de descriptor de archivo.
+
+    PortAudio imprime sus aserciones ALSA («Expression ... failed in
+    pa_linux_alsa.c») directamente con fprintf a stderr, sin pasar por el
+    handler de libasound. Si el dispositivo queda obsoleto, esas líneas se
+    repiten en bucle e inutilizan la terminal; esto las silencia por completo
+    mientras el stream de audio está vivo.
+    """
+
+    def __enter__(self) -> None:
+        import os as _os
+        self._saved = _os.dup(2)
+        devnull = _os.open(_os.devnull, _os.O_WRONLY)
+        _os.dup2(devnull, 2)
+        _os.close(devnull)
+
+    def __exit__(self, *exc) -> None:  # type: ignore[no-untyped-def]
+        import os as _os
+        _os.dup2(self._saved, 2)
+        _os.close(self._saved)
+
+
+def _silence_alsa_errors() -> None:
+    """Silencia el error handler de ALSA de PortAudio.
+
+    PortAudio instala un handler que imprime a stderr cada error ALSA. Si el
+    dispositivo se cae o queda obsoleto (p. ej. tras reiniciar wireplumber),
+    ese handler imprime «Expression ... failed in pa_linux_alsa.c» en bucle
+    sin fin e inutiliza la terminal. Reemplazarlo por un no-op evita el flood.
+    """
+    global _ALSA_NOOP_HANDLER
+    try:
+        import ctypes
+
+        alsa = ctypes.CDLL("libasound.so.2")
+        handler = ctypes.CFUNCTYPE(
+            None, ctypes.c_char_p, ctypes.c_int,
+            ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
+        )
+
+        def _noop(*_args) -> None:  # type: ignore[no-untyped-def]
+            pass
+
+        _ALSA_NOOP_HANDLER = handler(_noop)
+        alsa.snd_lib_error_set_handler(_ALSA_NOOP_HANDLER)
+    except Exception:  # noqa: BLE001 - si no hay libasound, nada que silenciar
+        pass
+
+
 def _restart_audio_stack() -> bool:
     """Reinicia wireplumber: desatasca el AGC del codec cuando el mic se satura.
 
@@ -223,6 +278,16 @@ def _restart_audio_stack() -> bool:
             ["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "35%"],
             capture_output=True, timeout=10,
         )
+        # PortAudio cachea el dispositivo ALSA: tras reiniciar wireplumber ese
+        # handle queda obsoleto y el siguiente stream puede caer en el flood
+        # de errores. Re-inicializar PortAudio para re-escanear dispositivos.
+        try:
+            import sounddevice as sd
+            sd._terminate()
+            sd._initialize()
+        except Exception:  # noqa: BLE001 - best-effort; el restart ya ocurrió
+            pass
+        _silence_alsa_errors()
         return True
     except Exception:  # noqa: BLE001 - si no se puede, se reporta el error original
         return False
@@ -280,6 +345,7 @@ class HandsFree:
             import sounddevice as sd
         except ImportError as exc:
             raise VoiceError("Falta sounddevice. Instálalo con: pip install sounddevice") from exc
+        _silence_alsa_errors()
 
         blocksize = int(SAMPLE_RATE * self.block_seconds)
         for attempt in range(2):
@@ -288,9 +354,11 @@ class HandsFree:
             self._queue = queue.Queue()
             self._stop.clear()
             try:
-                with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                    callback=self._callback, blocksize=blocksize,
-                                    device=self.device):
+                with _suppress_stderr(), sd.InputStream(
+                    samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                    callback=self._callback, blocksize=blocksize,
+                    device=self.device,
+                ):
                     return self._listen(on_wake)
             except _HandsFreeStopped:
                 return None
@@ -398,6 +466,7 @@ def record_until_silence(
         raise VoiceError(
             "Falta sounddevice. Instálalo con: pip install sounddevice"
         ) from exc
+    _silence_alsa_errors()
 
     quiet_needed = max(1, int(silence_seconds / BLOCK_SECONDS))
     max_blocks = int(max_seconds / BLOCK_SECONDS)
@@ -412,9 +481,13 @@ def record_until_silence(
             blocks.append(indata.copy())
 
         try:
-            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                callback=callback, blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
-                                device=device):
+            # stderr silenciado: PortAudio imprime aserciones ALSA a stderr
+            # directo y en bucle si el dispositivo queda obsoleto.
+            with _suppress_stderr(), sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                callback=callback, blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
+                device=device,
+            ):
                 while len(blocks) < CALIBRATION_BLOCKS:
                     sd.sleep(int(BLOCK_SECONDS * 1000))
                 # Calibrar umbral de silencio con el ruido de fondo (RMS).

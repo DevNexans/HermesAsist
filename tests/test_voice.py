@@ -8,7 +8,12 @@ import pytest
 
 from hermes.voice import (SAMPLE_RATE, BLOCK_SECONDS, HandsFree, Transcriber,
                           _HandsFreeStopped, _clean_for_speech, _read_wav_float32,
-                          contains_wake_phrase)
+                          _silence_alsa_errors, contains_wake_phrase)
+
+
+def test_silence_alsa_errors_is_noop():
+    # No debe lanzar aunque no exista libasound (p. ej. CI sin ALSA).
+    _silence_alsa_errors()
 
 
 def test_clean_for_speech_strips_markup():
