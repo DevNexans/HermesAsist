@@ -84,8 +84,9 @@ def style(text: str, code: str, enabled: bool) -> str:
     return f"{code}{text}{RESET}" if enabled else text
 
 
-GOODBYE_WORDS = {"adios", "adiós", "bye", "chao", "chau", "hasta luego",
-                 "hasta pronto", "nos vemos"}
+GOODBYE_WORDS = {"adios", "adiós", "bye", "chao", "chau", "chaito",
+                 "hasta luego", "hasta pronto", "hasta la vista", "nos vemos",
+                 "me voy"}
 
 
 def is_goodbye(text: str) -> bool:

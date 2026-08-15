@@ -7,6 +7,7 @@ def test_goodbye_variants():
     assert is_goodbye("Adios!")
     assert is_goodbye("hasta luego")
     assert is_goodbye("bye")
+    assert is_goodbye("chao")
     assert is_goodbye("nos vemos.")
 
 
